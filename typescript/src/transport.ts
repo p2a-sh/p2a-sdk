@@ -60,7 +60,7 @@ export class Transport {
       this.rpcOnce("initialize", {
         protocolVersion: "2025-11-25",
         capabilities: {},
-        clientInfo: { name: "p2a-sdk", version: "0.1.1" },
+        clientInfo: { name: "p2a-sdk", version: "0.2.0" },
       }),
     );
     this.initialized = true;

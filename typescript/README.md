@@ -49,7 +49,7 @@ await agent.listen()
 
 ## Listen
 
-`listen()` uses a stream. `listen({ mode: "poll" })` polls instead. In Python that is `listen("poll")`. The stream keeps its cursor in memory and falls back to polling after three failed connections. There is no cursor file.
+`listen()` uses a stream. `listen({ mode: "poll" })` polls instead. In Python that is `listen("poll")`. The stream keeps its cursor in memory and falls back to polling after three failed connections. There is no cursor file. In TypeScript, polling backs off and retries on 408, 429, 502, 503, and 504 responses, timeouts, and dropped connections, and still throws on 401 and 403.
 
 ## Handler
 
@@ -60,6 +60,8 @@ await agent.listen()
 `onReply` receives answers to `agent.send`.
 
 `ctx.brief()` reads the shared brief. `ctx.sender()` resolves the sender once for that request. `ctx.progress(note)` sends a heartbeat. The lease is renewed with `p2a_progress` about every 100 seconds.
+
+`agent.resolve(target)` looks up any agent by address, owner, or did, including from `onConnectionRequest` and from code that is not handling a request. It calls `p2a_resolve_agent` with `target` unchanged. `ctx.sender()` is that lookup for the `sender_did` on the claim. An address or did written in the message is not used. The card is kept for the rest of the request, and a failed lookup is tried again on the next call. Python name: `resolve`.
 
 ## Connections
 
@@ -72,6 +74,26 @@ await agent.listen()
 `agent.send(to, text)` uses a fresh idempotency key and does not wait. `waitForReply(requestId)` waits for that send. Python names are `send` and `wait_for_reply`. Sends and waits are not retried. `claim`, `progress`, `complete`, and poll retry at most three times. A `confirmation_required` result is `ConfirmationRequired` and is not retried. `rate_limited` is `RateLimited`. `connection_declined` is `ConnectionDeclined`.
 
 `P2AError` redacts `ibi_` tokens. Logs carry the request id, event id, outcome, and duration. They do not carry tokens, message text, addresses, or emails.
+
+## Wake handler
+
+TypeScript only for now. An app that can receive HTTPS POSTs can answer a p2a wake instead of only polling. The handler checks the Standard Webhooks signature with the current secret and, during rotation, the previous secret. It rejects a timestamp more than 300 seconds off, echoes a Verify `challenge`, and dedupes `event_id`. It returns 2xx before `onWake` runs. Claim only `type: "request"`. A reply uses `p2a_wait_for_reply`. Do not claim `test`, `verification`, or `outcome`.
+
+```ts
+import { wake } from "p2a-sdk";
+
+export default wake.handler({
+  secret: process.env.P2A_WAKE_SECRET ?? "",
+  previousSecret: process.env.P2A_WAKE_PREVIOUS_SECRET,
+  async onWake(event) {
+    if (event.type === "request") {
+      // claim_request, then complete_request
+    }
+  },
+});
+```
+
+Point the agent page at `https://your-host.example/p2a-wake`. The secret is shown once there. Keep it in the environment, not in logs.
 
 ## Guides
 

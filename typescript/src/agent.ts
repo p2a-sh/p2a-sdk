@@ -20,6 +20,7 @@ const COMPLETE = Symbol("p2a.complete");
 
 export interface Logger {
   info(line: string): void;
+  warn?(line: string): void;
 }
 
 export interface P2ASender {
@@ -195,6 +196,14 @@ export class P2AAgent {
     );
   }
 
+  /**
+   * Look up an agent by address, owner, or did.
+   * This works outside a request. The target is sent unchanged.
+   */
+  async resolve(target: string): Promise<Record<string, unknown>> {
+    return this.transport.callTool("p2a_resolve_agent", { target }, true);
+  }
+
   async send(to: string, text: string, options: SendOptions = {}): Promise<SendResult> {
     const payload = await this.transport.callTool(
       "p2a_send_message",
@@ -283,17 +292,28 @@ export class P2AAgent {
 
   private async pollLoop(names: string[], signal: AbortSignal): Promise<void> {
     const cursors = new Map<string, string>();
+    let failures = 0;
     while (!signal.aborted) {
       let wait = 25_000;
       let more = false;
-      for (const name of names) {
-        if (signal.aborted) return;
-        const page = await this.transport.poll(name, cursors.get(name));
-        if (page.cursor) cursors.set(name, page.cursor);
-        if (page.nextPollMs !== undefined) wait = Math.min(wait, page.nextPollMs);
-        if (page.hasMore) more = true;
-        await this.each(page.events ?? []);
+      try {
+        for (const name of names) {
+          if (signal.aborted) return;
+          const page = await this.transport.poll(name, cursors.get(name));
+          if (page.cursor) cursors.set(name, page.cursor);
+          if (page.nextPollMs !== undefined) wait = Math.min(wait, page.nextPollMs);
+          if (page.hasMore) more = true;
+          await this.each(page.events ?? []);
+        }
+      } catch (err) {
+        if (signal.aborted || isAbort(err)) return;
+        if (!isTransientPollError(err)) throw err;
+        failures += 1;
+        this.notePollRetry(err);
+        await this.clock.sleep(backoffMs(failures, this.clock.random()), signal);
+        continue;
       }
+      failures = 0;
       if (signal.aborted) return;
       if (!more) await this.clock.sleep(wait, signal);
     }
@@ -309,7 +329,10 @@ export class P2AAgent {
     } finally {
       side.abort();
       signal.removeEventListener("abort", stopSide);
-      await polling.catch(() => undefined);
+      await polling.catch((err) => {
+        if (isAbort(err)) return;
+        throw err;
+      });
     }
   }
 
@@ -510,11 +533,7 @@ export class P2AAgent {
           senderCard = (async () => {
             if (!req.sender.did) return {};
             try {
-              return await this.transport.callTool(
-                "p2a_resolve_agent",
-                { target: req.sender.did },
-                true,
-              );
+              return await this.resolve(req.sender.did);
             } catch (err) {
               senderCard = undefined;
               throw err;
@@ -586,6 +605,19 @@ export class P2AAgent {
     }
   }
 
+  private notePollRetry(err: unknown): void {
+    const line = `poll_retry ${pollRetryReason(err)}`;
+    if (this.logger.warn) {
+      this.logger.warn(line);
+      return;
+    }
+    if (this.logger !== silent) {
+      this.logger.info(line);
+      return;
+    }
+    process.stderr.write(`${line}\n`);
+  }
+
   private log(fields: {
     requestId?: string;
     eventId?: string;
@@ -633,4 +665,66 @@ function stringField(record: Record<string, unknown>, key: string): string | und
 
 function isAbort(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
+}
+
+const TRANSIENT_HTTP = new Set([408, 502, 503, 504]);
+const CONNECTION_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT",
+]);
+
+function isTransientPollError(err: unknown): boolean {
+  if (err instanceof AuthError || isAbort(err)) return false;
+  if (err instanceof P2AError) {
+    if (err.status === 401 || err.status === 403) return false;
+    if (err.status === 429 || err.code === "rate_limited") return true;
+    if (err.status !== undefined && TRANSIENT_HTTP.has(err.status)) return true;
+    if (err.code === "network") return true;
+    return false;
+  }
+  return isNamedTimeout(err) || isConnectionFailure(err);
+}
+
+function pollRetryReason(err: unknown): string {
+  if (err instanceof P2AError) {
+    if (err.status === 429 || err.code === "rate_limited") return "rate_limited";
+    if (err.status !== undefined && TRANSIENT_HTTP.has(err.status)) return `http_${err.status}`;
+    if (err.code === "network") return "network";
+  }
+  if (isNamedTimeout(err)) return "timeout";
+  if (isConnectionFailure(err)) return "connection";
+  return "connection";
+}
+
+function isNamedTimeout(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.name === "TimeoutError" || err.name === "ConnectTimeoutError" || err.name === "HeadersTimeoutError")
+  );
+}
+
+function isConnectionFailure(err: unknown): boolean {
+  return CONNECTION_CODES.has(causeCode(err)) || CONNECTION_CODES.has(causeCode(nestedCause(err)));
+}
+
+function causeCode(err: unknown): string {
+  if (!err || typeof err !== "object") return "";
+  const code = (err as { code?: unknown }).code;
+  return typeof code === "string" ? code : "";
+}
+
+function nestedCause(err: unknown): unknown {
+  if (!err || typeof err !== "object") return undefined;
+  return (err as { cause?: unknown }).cause;
 }

@@ -28,4 +28,6 @@ export {
 export { SseParser } from "./sse.js";
 export type { SseMessage } from "./sse.js";
 export { defineTool, runTool, toAnthropicTools, toOpenAITools } from "./tools.js";
+export { MemoryWakeStore, handler as wakeHandler, wake } from "./wake.js";
+export type { WakeEvent, WakeHandlerOptions, WakeStore } from "./wake.js";
 export type { AnthropicTool, OpenAITool, ToolDefinition } from "./tools.js";
