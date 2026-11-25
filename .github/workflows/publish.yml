@@ -1,0 +1,129 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which registry to publish to"
+        type: choice
+        options: [both, npm, pypi]
+        default: both
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check versions match the release tag
+        run: |
+          ts_version=$(node -p "require('./typescript/package.json').version")
+          py_version=$(python3 -c "import tomllib; print(tomllib.load(open('python/pyproject.toml','rb'))['project']['version'])")
+          echo "npm ${ts_version}, PyPI ${py_version}"
+          test "$ts_version" = "$py_version"
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            test "${GITHUB_REF_NAME#v}" = "$ts_version"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+
+      - name: TypeScript tests
+        working-directory: typescript
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Python tests
+        working-directory: python
+        run: |
+          uv sync --locked
+          uv run pytest -q
+
+  build-python:
+    needs: test
+    if: github.event_name == 'release' || inputs.target != 'npm'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build sdist and wheel
+        run: |
+          cp README.md LICENSE python/
+          cd python
+          uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: python/dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    needs: build-python
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/p2a-sdk
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-npm:
+    needs: test
+    if: github.event_name == 'release' || inputs.target != 'pypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/p2a-sdk
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Use an npm that supports trusted publishing
+        run: npm install -g npm@^11.5.1
+      - name: Build
+        run: |
+          cp README.md LICENSE typescript/
+          cd typescript
+          npm ci
+          npm run build
+      - name: Publish to npm
+        working-directory: typescript
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NPM_TOKEN}" ]; then
+            echo "Using the NPM_TOKEN secret"
+            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "${HOME}/.npmrc"
+          else
+            echo "Using npm trusted publishing (OIDC)"
+          fi
+          npm publish --provenance --access public
