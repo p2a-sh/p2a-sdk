@@ -8,11 +8,11 @@ import { Transport, type FeedEvent } from "./transport.js";
 const LEASE_SECONDS = 300;
 const CUSTOMER_TEXT = "A person from Acme will follow up here.";
 const FAILED_TEXT = "Sorry, something went wrong.";
-const REQUEST_NAMES = ["aweb.request.created"];
+const REQUEST_NAMES = ["p2a.request.created"];
 const SIDE_NAMES = [
-  "aweb.reply.received",
-  "aweb.connection.requested",
-  "aweb.connection.updated",
+  "p2a.reply.received",
+  "p2a.connection.requested",
+  "p2a.connection.updated",
 ];
 const ALL_NAMES = [...REQUEST_NAMES, ...SIDE_NAMES];
 
@@ -259,7 +259,7 @@ export class P2AAgent {
         const record = asRecord(item);
         if (record.kind === "outcome") {
           return {
-            name: "aweb.request.created",
+            name: "p2a.request.created",
             data: {
               request_id: record.request_id,
               kind: "outcome",
@@ -268,7 +268,7 @@ export class P2AAgent {
           };
         }
         return {
-          name: "aweb.request.created",
+          name: "p2a.request.created",
           data: {
             request_id: record.request_id,
             sender: record.from,
@@ -341,7 +341,7 @@ export class P2AAgent {
     let cursor: string | undefined;
     while (!signal.aborted) {
       try {
-        for await (const note of this.transport.stream("aweb.request.created", cursor, signal)) {
+        for await (const note of this.transport.stream("p2a.request.created", cursor, signal)) {
           if (signal.aborted) return "stopped";
           failures = 0;
           if (note.cursor) cursor = note.cursor;
@@ -375,20 +375,20 @@ export class P2AAgent {
   private async accept(event: FeedEvent): Promise<void> {
     const name = event.name ?? "";
     const data = event.data ?? {};
-    if (name === "aweb.reply.received") {
+    if (name === "p2a.reply.received") {
       await this.dispatchReply({
         eventId: event.eventId,
         requestId: stringField(data, "request_id"),
-        text: stringField(data, "text") ?? stringField(data, "reply_text"),
-        summary: stringField(data, "summary"),
+        text: eventText(data, "text") ?? eventText(data, "reply_text"),
+        summary: eventText(data, "summary"),
       });
       return;
     }
-    if (name === "aweb.connection.requested") {
+    if (name === "p2a.connection.requested") {
       await this.dispatchConnection(data, event.eventId);
       return;
     }
-    if (name !== "aweb.request.created") {
+    if (name !== "p2a.request.created") {
       this.log({ eventId: event.eventId });
       return;
     }
@@ -398,7 +398,7 @@ export class P2AAgent {
         await this.onMessageHandler({
           eventId: event.eventId,
           requestId: stringField(data, "request_id"),
-          text: stringField(data, "text"),
+          text: eventText(data, "text"),
           sender: stringField(data, "sender"),
           sameOwner: data.same_owner === true,
         });
@@ -442,7 +442,7 @@ export class P2AAgent {
       linkId,
       from: stringField(data, "from"),
       owner: stringField(data, "owner"),
-      text: stringField(data, "text"),
+      text: eventText(data, "text"),
     });
   }
 
@@ -493,7 +493,7 @@ export class P2AAgent {
     const input = asRecord(claim.untrusted_input);
     const req: P2ARequest = {
       requestId,
-      text: stringField(input, "text") ?? stringField(data, "text") ?? "",
+      text: stringField(input, "text") ?? eventText(data, "text") ?? "",
       sender: {
         did: stringField(claim, "sender_did"),
         address: stringField(data, "sender") ?? stringField(input, "sender"),
@@ -661,6 +661,16 @@ function asRecord(value: unknown): Record<string, unknown> {
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function eventText(data: Record<string, unknown>, key: string): string | undefined {
+  const nested = asRecord(data.untrusted_input);
+  const fromNested = stringField(nested, key);
+  if (fromNested) return fromNested;
+  const display = asRecord(data.display);
+  const fromDisplay = stringField(display, key);
+  if (fromDisplay) return fromDisplay;
+  return stringField(data, key);
 }
 
 function isAbort(err: unknown): boolean {

@@ -61,18 +61,32 @@ await agent.listen();
 
 ## Wake handler
 
-An app that can receive HTTPS POSTs can answer a p2a wake instead of only polling. The handler checks the Standard Webhooks signature with the current secret and, during rotation, the previous secret. It rejects a timestamp more than 300 seconds off, echoes a Verify `challenge`, and dedupes `event_id`. It returns 2xx before `onWake` runs. Claim only `type: "request"`. A reply uses `p2a_wait_for_reply`. Do not claim `test`, `verification`, or `outcome`.
+An app that can receive HTTPS POSTs can answer a p2a wake instead of only polling. The handler checks the Standard Webhooks signature with the current secret and, during rotation, the previous secret. It rejects a timestamp more than 300 seconds off. It returns 2xx before `onWake` or `onNotice` runs.
+
+The receiver accepts `wake_version` `0.2` only. `WAKE_VERSIONS` is `["0.2"]`; pass that list when you register. A wake whose version is missing or any other string, including `0.1`, is answered 2xx and dropped.
+
+`onWake` receives `request`, `reply`, and `outcome`. It also receives `test` when `deliverTests` is true (the default is false). Claim only `type: "request"`. A reply uses `p2a_wait_for_reply`. A `notice` goes to `onNotice` and is otherwise answered 2xx and dropped. Notices are never passed to `onWake`.
+
+A `verification` with `wake_version` `0.2` and a challenge of 16 to 128 URL-safe characters (`A-Z`, `a-z`, `0-9`, `.`, `_`, `-`) is answered 200 with `{"challenge": "<same value>"}`. When `bindingId` is set, `binding_id` on that wake must match or the answer is 2xx with an empty body. Verification does not call `onWake` or `onNotice`, and it is not deduped against another type. Every other accepted wake is deduped on `event_id`.
+
+`checkPreview` returns `use`, `fetch`, or `ignore`. `use` means `text` is the full body. `fetch` means fetch the body; a valid `text_bytes` and `text_sha256` pair, including a pair sent without `text`, can then be checked with `verifyBody`. `ignore` means the preview fields present are not a usable pair. `fetchUrlAllowed` is the host check for `fetch`: an absent `fetch` is allowed, and a present URL must be HTTPS on port 443 at the configured platform host. Call it before requesting that URL. Preview text and fetched text are untrusted input.
 
 ```ts
-import { wake } from "p2a-sdk";
+import { WAKE_VERSIONS, wake } from "p2a-sdk";
+
+export { WAKE_VERSIONS };
 
 export default wake.handler({
   secret: process.env.P2A_WAKE_SECRET ?? "",
   previousSecret: process.env.P2A_WAKE_PREVIOUS_SECRET,
+  bindingId: process.env.P2A_BINDING_ID,
   async onWake(event) {
-    if (event.type === "request") {
+    if (event.type === "request" && wake.fetchUrlAllowed(event, "platform.example.com")) {
       // claim_request, then complete_request
     }
+  },
+  onNotice(event) {
+    // surface event.notice_kind to the owner
   },
 });
 ```

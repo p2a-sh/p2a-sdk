@@ -110,7 +110,7 @@ async function until(check: () => boolean): Promise<void> {
 function created(data: Record<string, unknown>) {
   return {
     eventId: "evt-1",
-    name: "aweb.request.created",
+    name: "p2a.request.created",
     data,
   };
 }
@@ -248,7 +248,7 @@ describe("agent", () => {
     const server = await fake(async (rpc, _req, res) => {
       if (rpc.method === "initialize") return json(res, rpcResult(rpc.id, { protocolVersion: "2025-11-25" }));
       if (rpc.method === "events/poll") {
-        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "aweb.request.created").length === 1;
+        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "p2a.request.created").length === 1;
         const events = first
           ? [created({ request_id: "req-1", text: "please refund ada@example.com now", sender: "pat@acme", same_owner: false })]
           : [];
@@ -349,7 +349,7 @@ describe("agent", () => {
     const server = await fake(async (rpc, _req, res) => {
       if (rpc.method === "initialize") return json(res, rpcResult(rpc.id, {}));
       if (rpc.method === "events/poll") {
-        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "aweb.request.created").length === 1;
+        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "p2a.request.created").length === 1;
         return json(res, rpcResult(rpc.id, {
           events: first ? [created({ request_id: "req-1", kind: "request", text: "hi" })] : [],
           cursor: "c",
@@ -394,7 +394,7 @@ describe("agent", () => {
     const server = await fake(async (rpc, _req, res) => {
       if (rpc.method === "initialize") return json(res, rpcResult(rpc.id, {}));
       if (rpc.method === "events/poll") {
-        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "aweb.request.created").length === 1;
+        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "p2a.request.created").length === 1;
         return json(res, rpcResult(rpc.id, {
           events: first ? [created({ request_id: "req-1", text: "hi" })] : [],
           nextPollMs: 60_000,
@@ -429,7 +429,7 @@ describe("agent", () => {
     const server = await fake(async (rpc, _req, res) => {
       if (rpc.method === "initialize") return json(res, rpcResult(rpc.id, {}));
       if (rpc.method === "events/poll") {
-        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "aweb.request.created").length === 1;
+        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "p2a.request.created").length === 1;
         return json(res, rpcResult(rpc.id, {
           events: first ? [created({ request_id: "req-1", text: "hi" })] : [],
           nextPollMs: 60_000,
@@ -469,7 +469,7 @@ describe("agent", () => {
     const server = await fake(async (rpc, _req, res) => {
       if (rpc.method === "initialize") return json(res, rpcResult(rpc.id, {}));
       if (rpc.method === "events/poll") {
-        if (toolName(rpc) !== "aweb.request.created") {
+        if (toolName(rpc) !== "p2a.request.created") {
           return json(res, rpcResult(rpc.id, { events: [], nextPollMs: 60_000 }));
         }
         step += 1;
@@ -519,7 +519,7 @@ describe("agent", () => {
               params: {
                 cursor: "c1",
                 eventId: "e1",
-                name: "aweb.request.created",
+                name: "p2a.request.created",
                 data: { request_id: "req-1", kind: "message", text: "notice" },
               },
             })}\n\n`,
@@ -553,7 +553,7 @@ describe("agent", () => {
         return json(res, { error: "down" }, 500);
       }
       if (rpc.method === "events/poll") {
-        if (toolName(rpc) === "aweb.request.created") polls += 1;
+        if (toolName(rpc) === "p2a.request.created") polls += 1;
         return json(res, rpcResult(rpc.id, { events: [], nextPollMs: 60_000 }));
       }
       if (toolName(rpc) === "p2a_check_new") return json(res, tool(rpc.id, emptyInbox()));
@@ -572,9 +572,9 @@ describe("agent", () => {
     const server = await fake(async (rpc, _req, res) => {
       if (rpc.method === "initialize") return json(res, rpcResult(rpc.id, {}));
       if (rpc.method === "events/poll") {
-        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "aweb.connection.requested").length === 1;
+        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "p2a.connection.requested").length === 1;
         const events = first
-          ? [{ eventId: "evt-c", name: "aweb.connection.requested", data: { link_id: "link-1", from: "pat@acme", owner: "acme", text: "p2a connection request" } }]
+          ? [{ eventId: "evt-c", name: "p2a.connection.requested", data: { link_id: "link-1", from: "pat@acme", owner: "acme", text: "p2a connection request" } }]
           : [];
         return json(res, rpcResult(rpc.id, { events, nextPollMs: 60_000 }));
       }
@@ -616,7 +616,7 @@ describe("agent", () => {
     const server = await fake(async (rpc, _req, res) => {
       if (rpc.method === "initialize") return json(res, rpcResult(rpc.id, {}));
       if (rpc.method === "events/poll") {
-        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "aweb.request.created").length === 1;
+        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "p2a.request.created").length === 1;
         return json(res, rpcResult(rpc.id, {
           events: first ? [created({ request_id: "req-1", text: "hi", sender: "pat@acme" })] : [],
           nextPollMs: 60_000,
@@ -658,7 +658,7 @@ describe("agent", () => {
     const server = await fake(async (rpc, _req, res) => {
       if (rpc.method === "initialize") return json(res, rpcResult(rpc.id, {}));
       if (rpc.method === "events/poll") {
-        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "aweb.request.created").length === 1;
+        const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "p2a.request.created").length === 1;
         return json(res, rpcResult(rpc.id, {
           events: first ? [created({ request_id: "req-1", text: "hi", sender: "evil@other" })] : [],
           nextPollMs: 60_000,
@@ -722,7 +722,7 @@ async function answer(
 ): Promise<void> {
   if (rpc.method === "initialize") return json(res, rpcResult(rpc.id, {}));
   if (rpc.method === "events/poll") {
-    const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "aweb.request.created").length === 1;
+    const first = server.calls.filter((call) => call.method === "events/poll" && toolName(call) === "p2a.request.created").length === 1;
     return json(res, rpcResult(rpc.id, {
       events: first ? [created({ request_id: "req-1", text: "hi" })] : [],
       nextPollMs: 60_000,
